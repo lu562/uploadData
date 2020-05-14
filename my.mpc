@@ -1,0 +1,493 @@
+# (C) 2017 University of Bristol. See License.txt
+# (C) 2018 KU Leuven. See License.txt
+import random
+import time
+random.seed(562)
+
+
+
+def Precompute_hack(k):
+    A_hack = [[i + j for j in range(k)] for i in range(k)]
+    B_hack = [[i + 2 * j for j in range(k)] for i in range(k)]
+    C_hack = [[0 for _ in range(k)]for _ in range(k)]
+    for i in range(k):
+        for j in range(k):
+            for t in range(k): 
+                C_hack[i][j] = C_hack[i][j] +  A_hack[i][t] * B_hack[t][j]
+    A = [[sint(A_hack[i][j]) for j in range(k)] for i in range(k)]
+    B = [[sint(B_hack[i][j]) for j in range(k)] for i in range(k)]
+    C = [[sint(C_hack[i][j]) for j in range(k)] for i in range(k)]
+    return A,B,C
+
+def generate_beaver_triple_matrix_hack(k, m, n, q):
+    A_hack = [[i + j for j in range(m)] for i in range(k)]
+    B_hack = [[i + 2 * j for j in range(n)] for i in range(m)]
+    C_hack = [[i + 3 * j for j in range(q)]for i in range(n)]
+    D_hack = [[0 for _ in range(q)]for _ in range(k)]
+    AB_hack = [[0 for _ in range(n)]for _ in range(k)]
+    for i in range(k):
+        for j in range(n):
+            for t in range(m): 
+                AB_hack[i][j] = AB_hack[i][j] +  A_hack[i][t] * B_hack[t][j]
+    for i in range(k):
+        for j in range(q):
+            for t in range(n): 
+                D_hack[i][j] = D_hack[i][j] +  AB_hack[i][t] * C_hack[t][j]
+    A = [[sint(A_hack[i][j]) for j in range(m)] for i in range(k)]
+    B = [[sint(B_hack[i][j]) for j in range(n)] for i in range(m)]
+    C = [[sint(C_hack[i][j]) for j in range(q)] for i in range(n)]
+    D = [[sint(D_hack[i][j]) for j in range(q)] for i in range(k)]
+
+    return A, B, C, D
+
+def matrix_open(A):
+    k = len(A)
+    c = len(A[0])
+    res = [[0 for _ in range(c)] for _ in range(k)]
+    for i in range(k):
+        for j in range(c):
+            res[i][j] = A[i][j].reveal()
+    return res
+
+def matrix_mul(matrix_a, matrix_b):
+    k = len(matrix_a)
+    m = len(matrix_a[0])
+    n = len(matrix_b[0])    
+    # plain matrix is k*m and share matrix is m*n, output matrix is k*n
+    output = [[cint(0) for _ in range(n)]for _ in range(k)]
+    for i in range(k):
+        for j in range(n):
+            for t in range(m):
+                output[i][j] = output[i][j] + matrix_a[i][t] * matrix_b[t][j]
+    return output
+
+def matrix_addition(matrix_a, matrix_b):
+    m = len(matrix_a)
+    n = len(matrix_a[0])
+    output = [[cint(0) for _ in range(n)]for _ in range(m)]
+    for i in range(m):
+        for j in range(n):
+            output[i][j] = matrix_a[i][j] + matrix_b[i][j]
+    return output
+
+def beaver_mul_matrix(X, Y, A, B, C):
+    k = len(X)
+    m = len(X[0])
+    n = len(Y[0])
+    # D = X - A
+    D = [[X[i][j] - A[i][j] for j in range(m)] for i in range(k)]
+    # E = Y - B
+    E = [[Y[i][j] - B[i][j] for j in range(n)] for i in range(m)]
+
+    D_open = matrix_open(D)
+    E_open = matrix_open(E)
+    res = [[cint(0) for _ in range(n)]for _ in range(k)]
+
+    DE = matrix_mul(D_open, E_open)
+    res = matrix_addition(res, DE)
+    AE = matrix_mul(A, E_open)
+
+    res = matrix_addition(res, AE)
+
+    DB = matrix_mul(D_open, B)
+    res = matrix_addition(res, DB)  
+
+    res = matrix_addition(res, C)
+
+    return res
+
+def beaver_mul_three_matrix( X, Y, Z):
+    k = len(X)
+    m = len(X[0])
+    n = len(Y[0])
+    q = len(Z[0])
+    A,B,C,D = generate_beaver_triple_matrix_hack(k, m, n, q)
+
+    X_minus_A = [[X[i][j] - A[i][j] for j in range(m)] for i in range(k)]
+    Y_minus_B = [[Y[i][j] - B[i][j] for j in range(n)] for i in range(m)]
+    Z_minus_C = [[Z[i][j] - C[i][j] for j in range(q)] for i in range(n)]
+
+    X_minus_A_open = matrix_open(X_minus_A)
+    Y_minus_B_open = matrix_open(Y_minus_B)
+    Z_minus_C_open = matrix_open(Z_minus_C)
+
+    res = [[cint(0) for _ in range(q)] for _ in range(k)]
+
+    # E = (X-A)(Y-B) F = (X-A)(Y-B)(Z-C)
+    E = matrix_mul(X_minus_A_open, Y_minus_B_open)
+    F = matrix_mul(E, Z_minus_C_open)
+    res = matrix_addition(res, F)
+
+    A2,B2,C2 = Precompute_hack(k)
+    BZ = beaver_mul_matrix(B, Z, A2, B2, C2)
+
+    X_minus_A_BZ = matrix_mul(X_minus_A_open , BZ)
+    res = matrix_addition(res, X_minus_A_BZ)
+
+    # A2,B2,C2 = Precompute_hack(k)
+    AY = beaver_mul_matrix(A, Y, A2, B2, C2)
+    AY_Z_minus_C = matrix_mul(AY , Z_minus_C_open)
+    res = matrix_addition(res, AY_Z_minus_C)
+    # calculate X(Y - B)C
+    X_Y_minus_B = matrix_mul(X , Y_minus_B_open)
+    X_Y_minus_B_C = beaver_mul_matrix(X_Y_minus_B, C, A2, B2, C2)
+    res = matrix_addition(res, X_Y_minus_B_C)
+
+    res = matrix_addition(res, D)
+    return res
+
+def beaver_mul_three_matrix_with_precomputation( X, Y, Z, super_triple, normal_triple):
+    k = len(X)
+    m = len(X[0])
+    n = len(Y[0])
+    q = len(Z[0])
+    A = super_triple[0]
+    B = super_triple[1]
+    C = super_triple[2]
+    D = super_triple[3]
+
+    X_minus_A = [[X[i][j] - A[i][j] for j in range(m)] for i in range(k)]
+    Y_minus_B = [[Y[i][j] - B[i][j] for j in range(n)] for i in range(m)]
+    Z_minus_C = [[Z[i][j] - C[i][j] for j in range(q)] for i in range(n)]
+
+    X_minus_A_open = matrix_open(X_minus_A)
+    Y_minus_B_open = matrix_open(Y_minus_B)
+    Z_minus_C_open = matrix_open(Z_minus_C)
+
+    res = [[cint(0) for _ in range(q)] for _ in range(k)]
+
+    # E = (X-A)(Y-B) F = (X-A)(Y-B)(Z-C)
+    E = matrix_mul(X_minus_A_open, Y_minus_B_open)
+    F = matrix_mul(E, Z_minus_C_open)
+    res = matrix_addition(res, F)
+    # To save testing time I use hacked trick here, I use the same beaver triples to do 3 multiplication
+    A2 = normal_triple[0]
+    B2 = normal_triple[1]
+    C2 = normal_triple[2]
+
+    BZ = beaver_mul_matrix(B, Z, A2, B2, C2)
+
+    X_minus_A_BZ = matrix_mul(X_minus_A_open , BZ)
+    res = matrix_addition(res, X_minus_A_BZ)
+
+    # A2,B2,C2 = Precompute_hack(k)
+    AY = beaver_mul_matrix(A, Y, A2, B2, C2)
+    AY_Z_minus_C = matrix_mul(AY , Z_minus_C_open)
+    res = matrix_addition(res, AY_Z_minus_C)
+    # calculate X(Y - B)C
+    X_Y_minus_B = matrix_mul(X , Y_minus_B_open)
+    X_Y_minus_B_C = beaver_mul_matrix(X_Y_minus_B, C, A2, B2, C2)
+    res = matrix_addition(res, X_Y_minus_B_C)
+
+    res = matrix_addition(res, D)
+    return res
+
+
+# Codes about matrix inverse
+
+# def transposeMatrix(m):
+#     return map(list,zip(*m))
+
+# def getMatrixMinor(m,i,j):
+#     return [row[:j] + row[j+1:] for row in (m[:i]+m[i+1:])]
+
+# def getMatrixDeternminant(m):
+#     #base case for 2x2 matrix
+#     if len(m) == 2:
+#         return m[0][0]*m[1][1]-m[0][1]*m[1][0]
+
+#     determinant = 0
+#     for c in range(len(m)):
+#         determinant += ((-1)**c)*m[0][c]*getMatrixDeternminant(getMatrixMinor(m,0,c))
+#     return determinant
+
+# def getMatrixInverse(m):
+#     determinant = getMatrixDeternminant(m)
+#     #special case for 2x2 matrix:
+#     if len(m) == 2:
+#         return [[m[1][1]/determinant, -1*m[0][1]/determinant],
+#                 [-1*m[1][0]/determinant, m[0][0]/determinant]]
+
+#     #find matrix of cofactors
+#     cofactors = []
+#     for r in range(len(m)):
+#         cofactorRow = []
+#         for c in range(len(m)):
+#             minor = getMatrixMinor(m,r,c)
+#             cofactorRow.append(((-1)**(r+c)) * getMatrixDeternminant(minor))
+#         cofactors.append(cofactorRow)
+#     cofactors = transposeMatrix(cofactors)
+#     for r in range(len(cofactors)):
+#         for c in range(len(cofactors)):
+#             cofactors[r][c] = cofactors[r][c]/determinant
+#     return cofactors
+# ---------------------------------------------------------------------------------------------------------------
+# version 2 of matrix inverse.
+def determinant(A, total=0):
+    indices = list(range(len(A)))
+    
+    if len(A) == 2 and len(A[0]) == 2:
+        val = A[0][0] * A[1][1] - A[1][0] * A[0][1]
+        return val
+
+    for fc in indices:
+        As = copy_matrix(A)
+        As = As[1:]
+        height = len(As)
+        builder = 0
+
+        for i in range(height):
+            As[i] = As[i][0:fc] + As[i][fc+1:]
+
+        sign = (-1) ** (fc % 2)
+        sub_det = determinant(As)
+        total += A[0][fc] * sign * sub_det
+
+    return total
+        
+def zeros_matrix(rows, cols):
+    """
+    Creates a matrix filled with zeros.
+        :param rows: the number of rows the matrix should have
+        :param cols: the number of columns the matrix should have
+        :returns: list of lists that form the matrix.
+    """
+    M = []
+    while len(M) < rows:
+        M.append([])
+        while len(M[-1]) < cols:
+            M[-1].append(0)
+
+    return M
+
+def identity_matrix(n):
+    """
+    Creates and returns an identity matrix.
+        :param n: the square size of the matrix
+        :returns: a square identity matrix
+    """
+    I = zeros_matrix(n, n)
+    for i in range(n):
+        I[i][i] = 1
+
+    return I
+
+def copy_matrix(M):
+    """
+    Creates and returns a copy of a matrix.
+        :param M: The matrix to be copied
+        :return: The copy of the given matrix
+    """
+    rows = len(M)
+    cols = len(M[0])
+
+    MC = zeros_matrix(rows, cols)
+
+    for i in range(rows):
+        for j in range(rows):
+            MC[i][j] = M[i][j]
+
+    return MC
+
+def print_matrix(M):
+    """
+    docstring here
+        :param M: The matrix to be printed
+    """
+    for row in M:
+        print([round(x,3)+0 for x in row])
+
+def transpose(M):
+    """
+    Creates and returns a transpose of a matrix.
+        :param M: The matrix to be transposed
+        :return: the transpose of the given matrix
+    """
+    rows = len(M)
+    cols = len(M[0])
+
+    MT = zeros_matrix(cols, rows)
+
+    for i in range(rows):
+        for j in range(cols):
+            MT[j][i] = M[i][j]
+
+    return MT
+
+def matrix_multiply(A,B):
+    """
+    Returns the product of the matrix A * B
+        :param A: The first matrix - ORDER MATTERS!
+        :param B: The second matrix
+        :return: The product of the two matrices
+    """
+    rowsA = len(A)
+    colsA = len(A[0])
+
+    rowsB = len(B)
+    colsB = len(B[0])
+
+    if colsA != rowsB:
+        raise ArithmeticError('Number of A columns must equal number of B rows.')
+
+    C = zeros_matrix(rowsA, colsB)
+
+    for i in range(rowsA):
+        for j in range(colsB):
+            total = 0
+            for ii in range(colsA):
+                total += A[i][ii] * B[ii][j]
+            C[i][j] = total
+
+    return C
+
+def invert_matrix(A, tol=None):
+    """
+    Returns the inverse of the passed in matrix.
+        :param A: The matrix to be inversed
+        :return: The inverse of the matrix A
+    """
+    n = len(A)
+    AM = copy_matrix(A)
+    I = identity_matrix(n)
+    IM = copy_matrix(I)
+
+    # Section 3: Perform row operations
+    indices = list(range(n)) # to allow flexible row referencing ***
+    for fd in range(n): # fd stands for focus diagonal
+        fdScaler = 1 / AM[fd][fd]
+        # FIRST: scale fd row with fd inverse. 
+        for j in range(n): # Use j to indicate column looping.
+            AM[fd][j] *= fdScaler
+            IM[fd][j] *= fdScaler
+        # SECOND: operate on all rows except fd row as follows:
+        for i in indices[0:fd] + indices[fd+1:]: # *** skip row with fd in it.
+            crScaler = AM[i][fd] # cr stands for "current row".
+            for j in range(n): # cr - crScaler * fdRow, but one element at a time.
+                AM[i][j] = AM[i][j] - crScaler * AM[fd][j]
+                IM[i][j] = IM[i][j] - crScaler * IM[fd][j]
+    return IM
+
+
+
+
+
+
+
+
+# Codes about multiplying arbitrary number of matrices
+
+def matrix_inverse_hack(k):
+    
+    A_hack = [[cint(random.randint(1,50)) for j in range(k)] for i in range(k)]
+    A_inverse_hack = invert_matrix(A_hack)
+
+    A = [[sint(A_hack[i][j]) for j in range(k)] for i in range(k)]
+    A_inverse = [[sint(A_inverse_hack[i][j]) for j in range(k)] for i in range(k)]
+    return A, A_inverse
+
+
+def offline_multi_matrix_multiply(k, n):
+    R = []
+    R_inverse = []
+
+    for i in range(n + 1):
+        a, a_inverse = matrix_inverse_hack(k)
+        R.append(a)
+        R_inverse.append(a_inverse)
+    return R, R_inverse
+# for now it only supports multiplying n k*k matrices
+def multi_matrices_multiply(M, R, R_inverse):
+
+    if len(M) < 2 or len(R) < 2 or len(M) != (len(R) - 1) or len(R_inverse) != len(R):
+        return None
+
+    triples = []
+    for i in range(len(M)):
+        t = beaver_mul_three_matrix( R[i], M[i], R_inverse[i + 1])
+        t_reveal = matrix_open(t)
+        triples.append(t_reveal)
+    result = triples[0]
+    for i in range(1, len(M)):
+        result = matrix_mul(result, triples[i])
+
+    result = matrix_mul(R_inverse[0], result)
+    A, B, C = Precompute_hack(len(M[0]))
+    result = beaver_mul_matrix(result, R[-1], A, B, C)
+
+    return result
+
+def multi_matrices_multiply_with_precompute(M, R, R_inverse, super_triple, normal_triple):
+
+    if len(M) < 2 or len(R) < 2 or len(M) != (len(R) - 1) or len(R_inverse) != len(R):
+        return None
+    # Notice: trick used here to save time, correct code should be len(normal_triple) != 9 * len(M)
+    if len(super_triple) != 4 * len(M) or len(normal_triple) != 3 * len(M):
+        return None
+
+    triples = []
+    for i in range(len(M)):
+        t = beaver_mul_three_matrix_with_precomputation( R[i], M[i], R_inverse[i + 1], super_triple[4 * i: 4 * i + 4], normal_triple[3 * i: 3 * i + 3])
+        t_reveal = matrix_open(t)
+        triples.append(t_reveal)
+    result = triples[0]
+    for i in range(1, len(M)):
+        result = matrix_mul(result, triples[i])
+
+    result = matrix_mul(R_inverse[0], result)
+    # Note: this can also be moved outside. TBD
+    A, B, C = Precompute_hack(len(M[0]))
+    result = beaver_mul_matrix(result, R[-1], A, B, C)
+
+    return result
+
+def triple_generation_for_multi_matrix(k, n):
+    super_triple = []
+    normal_triple = []
+
+    for i in range(n):
+        A,B,C,D = generate_beaver_triple_matrix_hack(k, k, k, k)
+        super_triple.append(A)
+        super_triple.append(B)
+        super_triple.append(C)
+        super_triple.append(D)
+    # hack here
+    for i in range(n):
+        A, B, C = Precompute_hack(k)
+        normal_triple.append(A)
+        normal_triple.append(B)
+        normal_triple.append(C)
+
+    return super_triple, normal_triple
+
+
+# Main():
+
+k = 10
+n = 5
+A,B,C = Precompute_hack(k)
+
+matrix_a = [[sint(3) for _ in range(k)] for _ in range(k)]
+matrix_b = [[sint(5) for _ in range(k)] for _ in range(k)]
+matrix_c = [[sint(7) for _ in range(k)] for _ in range(k)]
+
+#res = beaver_mul_three_matrix(matrix_a, matrix_b, matrix_c)
+#res_open = matrix_open(res)
+
+R, R_inverse = offline_multi_matrix_multiply(k, n)
+super_triple, normal_triple = triple_generation_for_multi_matrix(k, n)
+M = []
+for _ in range(n):
+    M.append(matrix_a)
+start = time.time()
+res = multi_matrices_multiply_with_precompute(M, R, R_inverse, super_triple, normal_triple)
+stop = time.time()
+res_open = matrix_open(res)
+print_ln("online phase time : %s", (stop - start))
+print_ln("%s", res_open)
+
+# res = beaver_mul_matrix(R, R_inverse, A,B,C)
+# res_open = matrix_open(res)
+# print_ln("%s", res_open)
+
+
