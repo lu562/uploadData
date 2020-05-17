@@ -2,9 +2,13 @@
 # (C) 2018 KU Leuven. See License.txt
 import random
 import time
+from multiprocessing.pool import ThreadPool
+import math
+import threading
 random.seed(562)
 
-
+gap = 10000
+gap_for_parameter = 20000
 
 def Precompute_hack(k):
     A_hack = [[i + j for j in range(k)] for i in range(k)]
@@ -181,6 +185,21 @@ def beaver_mul_three_matrix_with_precomputation( X, Y, Z, super_triple, normal_t
 
     res = matrix_addition(res, D)
     return res
+
+# read or write matrix from global memory, used for multi-threads
+def read_mem_matrix(start, k ,n):
+    result = [[0 for _ in range(n)] for _ in range(k)]
+    for i in range(k):
+        for j in range(n):
+            result[i][j] = load_clear_mem(start + i*k + j)
+    return result
+
+def write_mem_matrix(start, m):
+    k = len(m)
+    n = len(m[0])
+    for i in range(k):
+        for j in range(n):
+            store_in_mem(m[i][j], start + i*k + j)
 
 
 # Codes about matrix inverse
@@ -430,9 +449,129 @@ def multi_matrices_multiply_with_precompute(M, R, R_inverse, super_triple, norma
         t = beaver_mul_three_matrix_with_precomputation( R[i], M[i], R_inverse[i + 1], super_triple[4 * i: 4 * i + 4], normal_triple[3 * i: 3 * i + 3])
         t_reveal = matrix_open(t)
         triples.append(t_reveal)
+    
+    # version 1: single thread
+    # result = triples[0]
+    # for i in range(1, len(M)):
+    #     result = matrix_mul(result, triples[i])
+
+    #version 2: multi thread, this requires n to be power of 2
+
+    # def thread_mul(d):
+    #     offset = get_arg()
+    #     # dimension of first matrces ONLY SQUARE MATRIX FOR NOW
+    #     # k = load_clear_mem(offset)
+    #     # m = load_clear_mem(offset + 1)
+    #     # n = load_clear_mem(offset + 2)
+    #     k = d
+    #     m = d
+    #     n = d
+    #     start = load_clear_mem(offset + 3)
+
+    #     matrix_a = read_mem_matrix(start, k ,m)
+    #     matrix_b = read_mem_matrix(start + k*m, m ,n)
+    #     result = matrix_mul(matrix_a, matrix_b)
+    #     write_mem_matrix(start+gap, result)
+    # t = MPCThread(thread_mul, 'f', [len(M[0])])
+
+    # for _ in range(int(math.log(len(M), 2))):
+    #     # write all matrice to global memory
+    #     offset = 0
+    #     for i in range(len(triples)):
+    #         write_mem_matrix(offset ,triples[i])
+    #         # only support square matrix due to this line
+    #         offset = offset + len(M[0]) * len(M[0])
+
+    #     offset = 0
+    #     for i in range(len(triples)/2):
+
+    #         store_in_mem(len(triples[2*i]), gap_for_parameter + 4 * i) 
+    #         store_in_mem(len(triples[2*i][0]), gap_for_parameter + 4 * i + 1)
+    #         store_in_mem(len(triples[2*i + 1][0]), gap_for_parameter + 4 * i + 2)
+    #         store_in_mem(offset, gap_for_parameter + 4 * i + 3)
+
+    #         offset = offset + len(triples[2*i]) * len(triples[2*i][0]) + len(triples[2*i][0]) * len(triples[2*i + 1][0])
+    #         t.start(gap_for_parameter + 4 * i)
+
+    #     for i in range(len(triples)/2):
+    #         t.join()
+
+    #     # read result from global memory Note: only support square matrix right now
+    #     for i in range(len(triples)/2):
+    #         # only support square matrix due to this line
+
+    #         triples[i] = read_mem_matrix(gap + i * len(M[0]) * len(M[0]), len(M[0]), len(M[0]))
+    #     # delete last half of triples[]
+    #     for i in range(len(triples)/2):
+    #         triples.pop()
+    # version 3: Using program.make_tapes.
+
+    def thread_mul(d):
+        offset = get_arg()
+        # dimension of first matrces ONLY SQUARE MATRIX FOR NOW
+        # k = load_clear_mem(offset)
+        # m = load_clear_mem(offset + 1)
+        # n = load_clear_mem(offset + 2)
+        k = d
+        m = d
+        n = d
+        start = load_clear_mem(offset + 3)
+        
+
+        matrix_a = read_mem_matrix(start, k ,m)
+        matrix_b = read_mem_matrix(start + k*m, m ,n)
+        # print_ln("this is input A: %s", matrix_a)
+        # print_ln("this is input B: %s", matrix_b)
+        result = matrix_mul(matrix_a, matrix_b)
+        write_mem_matrix(start+gap, result)
+
+    def make_tapes(n=10):
+        return [program.new_tape(thread_mul,[len(M[0])]) for i in range(n)]
+
+    for _ in range(int(math.log(len(M), 2))):
+        # print_ln("%s",triples)
+        # write all matrice to global memory
+        offset = 0
+        for i in range(len(triples)):
+            write_mem_matrix(offset ,triples[i])
+            # only support square matrix due to this line
+            offset = offset + len(M[0]) * len(M[0])
+
+        offset = 0
+        for i in range(len(triples)/2):
+            # store the input parameters for thread_mul
+            store_in_mem(cint(len(triples[2*i])), gap_for_parameter + 4 * i) 
+            store_in_mem(cint(len(triples[2*i][0])), gap_for_parameter + 4 * i + 1)
+            store_in_mem(cint(len(triples[2*i + 1][0])), gap_for_parameter + 4 * i + 2)
+            store_in_mem(cint(offset), gap_for_parameter + 4 * i + 3)
+
+            offset = offset + len(triples[2*i]) * len(triples[2*i][0]) + len(triples[2*i][0]) * len(triples[2*i + 1][0])
+        # mem = [load_clear_mem(gap_for_parameter + i) for i in range(20)]
+        # print_ln("%s", mem)
+        # make tapes
+        tapes = make_tapes(len(triples)/2)
+
+        # run these tapes
+        run_tapes = []
+        for i in range(len(tapes)):
+            b = program.run_tape(tapes[i], gap_for_parameter + 4 * i)
+            run_tapes.append(b)
+        for i in run_tapes:
+            program.join_tape(i) 
+        # mem = [load_clear_mem(gap + i) for i in range(20)]
+        # print_ln("%s", mem)
+        # read result from global memory Note: only support square matrix right now
+        for i in range(len(triples)/2):
+            # only support square matrix due to this line
+
+            triples[i] = read_mem_matrix(gap + 2 * i * len(M[0]) * len(M[0]), len(M[0]), len(M[0]))
+
+        # delete last half of triples[]
+        for i in range(len(triples)/2):
+            triples.pop()
+
     result = triples[0]
-    for i in range(1, len(M)):
-        result = matrix_mul(result, triples[i])
+    b = R_inverse[0][0][0] + R_inverse[0][0][1]
 
     result = matrix_mul(R_inverse[0], result)
     # Note: this can also be moved outside. TBD
@@ -462,11 +601,11 @@ def triple_generation_for_multi_matrix(k, n):
 
 
 # Main():
-
+counter = 0
 k = 10
-n = 5
+n = 8
 A,B,C = Precompute_hack(k)
-
+program.malloc(counter, 'c')
 matrix_a = [[sint(3) for _ in range(k)] for _ in range(k)]
 matrix_b = [[sint(5) for _ in range(k)] for _ in range(k)]
 matrix_c = [[sint(7) for _ in range(k)] for _ in range(k)]
