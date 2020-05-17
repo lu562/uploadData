@@ -8,7 +8,7 @@ import threading
 random.seed(562)
 
 k = 10
-n = 16
+n = 4
 gap = k * k * n + 100
 gap_for_parameter = k * k * n * 2 + 100
 
